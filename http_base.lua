@@ -1,19 +1,42 @@
-
---hds = "HTTP/1.1 200 OK\r\nServer: nginx/1.4.4\r\nDate: Fri, 10 Apr 2015 03:24:45 GMT\r\nContent-Type: text/html; charset=UTF-8\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\nvia: yq34.pyruntime\r\nContent-Encoding: gzip\r\n";
-hds = "GET /edit HTTP/1.1\r\nHost: urlimg.sinaapp.com\r\nConnection: keep-alive\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\nUser-Agent: Mozilla/5.0 (Windows NT 5.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.101 Safari/537.36\r\nAccept-Encoding: gzip, deflate, sdch\r\nAccept-Language: zh-CN,zh;q=0.8\r\nCookie: saeut=CkMPGlS8X/4mpy41Ck7qAg==\r\n"
-
+------------------------------------------------------------------------------
+-- HTTP Base module
+--
+-- https://github.com/sintrb/nodemcu-http
+-- e-mail: sintrb@gmail.com
+------------------------------------------------------------------------------
 
 local Utils = {}
 local Header = {}
 local Socket = {}
 local NewLine = "\r\n"
+
 function Utils.NextString(s, str, start)
 	local ix = s:find(str, start)
 	if not ix then return nil, -1 end
 	return s:sub(start, ix-1), ix
 end
 
-
+function Utils.UnChunk(s)
+	local start = 0
+	local l = nil
+	local buf = {}
+	while true and s do
+		l,start = Utils.NextString(s,NewLine,start)
+		if start<0 then
+			break
+		end
+		if l then
+			start = start + #NewLine
+			local tl = tonumber(l,16)
+			if tl and tl>0 then
+				local dat = s:sub(start, start+tl-1)
+				start = start + tl
+				table.insert(buf, dat)
+			end
+		end
+	end
+	return table.concat(buf)
+end
 
 function Header.New(hds)
 	local start = 0
@@ -29,7 +52,7 @@ function Header.New(hds)
 			hd[k] = v
 		end
 		-- print(l)
-		start = start + 2
+		start = start + #NewLine
 	end
 	return hd
 end
@@ -48,32 +71,41 @@ function Header.GetString(hd)
 end
 
 function Socket.TCPSend(host,port,data,callback)
-	local socket = require("socket")
-	local sock = socket.connect(host, port)
-	sock:send(data)
-	local rdata = {}
-	repeat
-	    local chunk, status, partial = sock:receive(1024)
-	    if #partial >0 then
-	    	table.insert(rdata, partial)
-	   else
-	   		break
-	   end
-	until status ~= "closed"
-	sock:close()
-	callback(table.concat(rdata))
+	-- print("send:",data)
+	if net then
+		-- on nodemcu
+		local sck=net.createConnection(net.TCP, false) 
+		sck:on("connection", function(conn)
+			conn:send(data)
+		end)
+		sck:on("receive", function(conn, data)
+			callback(data)
+		end)
+		sck:connect(port,host)
+	else
+		-- on pc
+		local socket = require("socket")
+		local sock = socket.connect(host, port)
+		sock:send(data)
+		local buf = {}
+		repeat
+		    local chunk, status, partial = sock:receive(1024)
+		    if #partial >0 then
+		    	table.insert(buf, partial)
+		   else
+		   		break
+		   end
+		until status ~= "closed"
+		sock:close()
+		local rd = table.concat(buf)
+		callback(rd)
+	end
 end
-
--- Socket.TCPSend("xbase.sinaapp.com",80,
--- 	"GET /monit/1425567511000 HTTP/1.1\r\nHost: xbase.sinaapp.com\r\nConnection: close\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\nAccept-Encoding: deflate\r\nAccept-Language: zh-CN,zh;q=0.8\r\n\r\n",
--- 	function(data)
--- 		print(data)
--- 	end
--- )
 
 return {
 	Header = Header,
 	NewLine = NewLine,
-	Socket = Socket
+	Socket = Socket,
+	Utils = Utils
 }
 
