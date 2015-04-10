@@ -21,12 +21,12 @@ function Client.New(url, header)
 			end
 		end
 	end
-	local _,_,prot,host,path = url:find("^(https?)://([^/^\?]*)(.*)$")
+	local _,_,prot,host,port,path = url:find("^(https?)://([^/^\?^:]*)([:0-9]*)(.*)$")
 	clt._url = url
 	clt._prot = prot
 	clt._path = path
 	clt._host = host
-	clt._port = 80
+	clt._port = (port and tonumber(port:sub(2),10)) or 80
 	clt.hd.Host = host
 	return clt
 end
