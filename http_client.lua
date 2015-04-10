@@ -1,15 +1,28 @@
-local Base = require("http_base")
-local hds = "GET /edit HTTP/1.1\r\nHost: urlimg.sinaapp.com\r\nConnection: keep-alive\r\nPragma: no-cache\r\nCache-Control: no-cache\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\nUser-Agent: Mozilla/5.0 (Windows NT 5.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.101 Safari/537.36\r\nAccept-Encoding: gzip, deflate, sdch\r\nAccept-Language: zh-CN,zh;q=0.8\r\nCookie: saeut=CkMPGlS8X/4mpy41Ck7qAg==\r\n"
+------------------------------------------------------------------------------
+-- HTTP Client module
+--
+-- https://github.com/sintrb/nodemcu-http
+-- e-mail: sintrb@gmail.com
+------------------------------------------------------------------------------
 
+local Base = require("http_base")
 
 local Client = {}
 
-function Client.New(url)
+function Client.New(url, header)
 	local clt = {}
 	clt.hd = Base.Header.New()
 	clt.hd["Connection"] = "Close"
 	clt.hd["Pragma"] = "no-cache"
+	if header then
+		for k,v in pairs(header) do
+			if type(v) == "string" and (string.sub(k,0,1)~='_') then
+				clt.hd[k] = v
+			end
+		end
+	end
 	local _,_,prot,host,path = url:find("^(https?)://([^/^\?]*)(.*)$")
+	clt._url = url
 	clt._prot = prot
 	clt._path = path
 	clt._host = host
@@ -19,22 +32,48 @@ function Client.New(url)
 end
 
 function Client.Do(clt, method, body, callback)
+	if type(clt) == "string" then
+		clt = Client.New(clt)
+	end
 	clt.hd._firstline = method.." "..clt._path.." HTTP/1.1"
-	local hds = Base.Header.GetString(clt.hd)..Base.NewLine..Base.NewLine
-	local trunk = hds
-	Base.Socket.TCPSend(clt._host,clt._port,trunk,function(data)
+	local chunk = nil
+	if body then
+		clt.hd["Content-Length"] = ""..#body
+		chunk = Base.Header.GetString(clt.hd)..Base.NewLine..Base.NewLine..body..Base.NewLine
+	else
+		clt.hd["Content-Length"] = 0
+		chunk = Base.Header.GetString(clt.hd)..Base.NewLine..Base.NewLine
+	end
+	Base.Socket.TCPSend(clt._host,clt._port,chunk,function(data)
 		local  st1, st2 = string.find(data,Base.NewLine..Base.NewLine)
 		local hds = string.sub(data,0,st1)
 		local data = string.sub(data,st2+1)
 		local hd = Base.Header.New(hds)
 		if hd["Transfer-Encoding"] == "chunked" then
-			
+			data = Base.Utils.UnChunk(data)
 		end
-		print(data)
-		end)
+		if callback then
+			callback(clt, data)
+		end
+	end)
 end
 
+function Client.Get(clt, callback)
+	Client.Do(clt, "GET", nil, callback)
+end
+
+function Client.Post(clt, data, callback)
+	Client.Do(clt, "POST", data, callback)
+end
+
+function Client.Put(clt, data, callback)
+	Client.Do(clt, "PUT", data, callback)
+end
+
+function Client.Delete(clt, data, callback)
+	Client.Do(clt, "DELETE", nil, callback)
+end
+
+return Client
 
 
-local clt = Client.New("http://api.yeelink.net//v1.0/device/18073/sensor/31457/datapoints")
-Client.Do(clt, "GET")
