@@ -8,7 +8,7 @@
 local Utils = {}
 local Header = {}
 local Socket = {}
-local NewLine = "\r\n"
+local NewLine = "\n"
 
 function Utils.NextString(s, str, start)
 	local ix = s:find(str, start)
@@ -49,7 +49,9 @@ function Header.New(hds)
 			hd._firstline = l
 		else
 			local _, _, k, v = l:find("^([%w-]+):%s*(.+)")
-			hd[k] = v
+			if k then
+				hd[k] = v
+			end
 		end
 		-- print(l)
 		start = start + #NewLine
@@ -82,6 +84,7 @@ function Socket.TCPSend(host,port,data,callback)
 			callback(data)
 		end)
 		sck:connect(port,host)
+		return sck
 	else
 		-- on pc
 		local socket = require("socket")
@@ -99,6 +102,47 @@ function Socket.TCPSend(host,port,data,callback)
 		sock:close()
 		local rd = table.concat(buf)
 		callback(rd)
+		return sock
+	end
+end
+
+function Socket.TCPListen(host, port, recvcallback)
+	if net then
+		-- on nodemcu
+		local srv=net.createServer(net.TCP)
+		local serv = {}
+		serv["running"] = true
+		serv["server"] = srv
+		srv:listen(port,function(conn) 
+			conn:on("receive",function(conn,data) 
+				recvcallback(serv, conn, data)
+				if not serv["running"] then
+					srv:close()
+				end
+			end)
+		end)
+		return srv
+	else
+		-- on pc
+		local socket = require("socket")
+		local server = assert(socket.bind(host, port))
+		local serv = {}
+		serv["running"] = true
+		serv["server"] = server
+		-- on pc, it is die loop....
+		while serv["running"] do
+			local clt = assert(server:accept())
+			while true do
+				local data, status = clt:receive()
+				if status=="closed" then
+					recvcallback(serv, clt, nil)
+					break
+				else
+					recvcallback(serv, clt, data)
+				end
+			end
+		end
+		return serv
 	end
 end
 
@@ -108,4 +152,3 @@ return {
 	Socket = Socket,
 	Utils = Utils
 }
-
